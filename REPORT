@@ -1,0 +1,90 @@
+Report
+
+The issue to connect to the server on 07.01.2025.
+
+We cannot access the website of our client, MediaWiki. When we try to connect, it comes the message "$wgServer must be set in LocalSettings.php".
+
+1. We try to define, where the problem comes from. 
+
+Due to the message, we understand that the problem comes from server configuration.
+
+
+ In terminal we connect to the server, using the following script:
+    ssh -i /home/igor/ich/ich.pem ec2-user@3.79.39.74
+
+Unfortunately, because of the fact that: 
+  	  permissions 0664 for '/home/igor/ich/ich.pem' are too open.
+	    it is required that your private key files are NOT accessible by others.
+	    this private key will be ignored.
+We need to set chmod 600 to change the file permission to read and write for the owner of the file. 
+	    chmod 600 /home/igor/ich/ich.pem
+And we can access:
+	    ssh -i /home/igor/ich/ich.pem ec2-user@3.79.39.74
+
+We see the status of server:
+	    sudo systemctl status httpd
+
+As we know from the message, the problem is how some connected with the file LocalSettings.php
+
+We use sudo, as elevated privileges and try to find this file 
+	  sudo find / -type f -name "LocalSettings.php"
+
+The file that we found, we open in vim
+	  vim/var/www/html/mediawiki/LocalSettings.php
+
+We see that this file is  run by the system right now. We read it using the comment cat, and notice, that the file is empty.
+We had a file in home directory, that is why we go into home dir, using command cd. And then, using command ls -l, list what we have. As we see the wanted file, we want to open it and we discover that there is no space on device.
+We want to see free space on disk, by using dh -h, we are seeing that there is no space at all. We decide to look at all files that are larger than 1 GB
+	  sudo find / -type f -size +1G -exec du -h {} +
+We discover, among of others, that /var/log/httpd/access_log is larger than 7 GB.
+
+
+
+
+2. We fix the issue. One of the problem is that we do not have space on disk, To make some space, we have more options, for example, to make the content empty, or to delete the file (to delete the file would be not the best procedure).
+To minimise risks, we
+	  sudo truncate -s 0 /var/log/httpd/access_log
+
+Now we see that this files is no larger as 0 bite. Now we already can open this file. As we see, the content and the location of this file is not what and where should be. So we copy to the right destination and indicate the  new name
+	  cp LocalSettings\ \(5\).php /var/www/html/mediawiki/LocalSettings.php
+
+We enter in this file, using vim and notice the next problem, that the variable $wgServer is not the right one, so we assign the right value to this variable.
+	  $wgServer = "https://3.79.39.74";
+
+As result, when we enter the site, it runs! At this moment, so that we again not run in the problem with no free space on disk, we decide to delete all the files from the archive that are older than 1 day.
+
+We wrote a script in vim and saved it
+	
+	  vim log_backup.sh
+
+When we enter
+	  sudo crontab -l
+
+We see the next problem  and that the archive is creating and saving itself every minute, every hour, every day and so on, which will be using in perspective too much space	
+	  * * * * * tar -czf /var/log/httpd/log_$(date +\%Y\%m\%d).tar.gz -C /var/log/httpd
+
+So we redo it
+	  0 0 * * * /home/ec2-user/log_backup.sh
+With the meaning to save only once a day and we run it
+
+	  chmod +x log_backup.sh
+
+
+
+3. As result: 
+	-the website and the server are running: 
+	-on disk is now enough space due to deleting the large log file and remaking the archive process;
+	- to the configuration variable was assigned the right value.
+	
+For the future we would recommend to 
+	-continuously evaluate the free space on disk, with announcement when it is dangerous;
+	-regularly to check crontab, to prevent issues;
+
+4. In conclusion: the issue was successfully resolved. The web site and the server are running again. Additional measures to prevent such situations have been implemented.
+	
+
+Corina Filip,
+12.01.2025
+
+
+
